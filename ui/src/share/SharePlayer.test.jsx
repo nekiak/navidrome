@@ -1,5 +1,8 @@
-import { render, act } from '@testing-library/react'
-import SharePlayer, { DOWNLOAD_FEEDBACK_MS } from './SharePlayer'
+import { render, act, fireEvent } from '@testing-library/react'
+import SharePlayer, {
+  DOWNLOAD_FEEDBACK_MS,
+  SHARE_VOLUME_KEY,
+} from './SharePlayer'
 
 let playerProps
 let renderCount
@@ -8,7 +11,7 @@ vi.mock('navidrome-music-player', () => ({
   default: (props) => {
     playerProps = props
     renderCount++
-    return <div data-testid="player" />
+    return <div data-testid="player">{props.extendsContent}</div>
   },
 }))
 
@@ -31,6 +34,7 @@ describe('SharePlayer', () => {
   let clickSpy
 
   beforeEach(() => {
+    localStorage.clear()
     vi.useFakeTimers()
     playerProps = null
     renderCount = 0
@@ -41,6 +45,7 @@ describe('SharePlayer', () => {
   })
 
   afterEach(() => {
+    localStorage.clear()
     vi.runOnlyPendingTimers()
     vi.useRealTimers()
     vi.restoreAllMocks()
@@ -135,5 +140,75 @@ describe('SharePlayer', () => {
     })
 
     expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it('updates audio element volume and localStorage when volume slider changes and supports mute toggle', () => {
+    const { getByRole, getByTitle } = render(<SharePlayer />)
+    const mockAudio = { volume: 1 }
+
+    act(() => {
+      playerProps.getAudioInstance(mockAudio)
+    })
+
+    const slider = getByRole('slider', { name: /volume/i })
+    expect(slider).toBeInTheDocument()
+    expect(slider.value).toBe('1')
+
+    // Change volume via slider
+    act(() => {
+      fireEvent.change(slider, { target: { value: '0.5' } })
+    })
+
+    expect(mockAudio.volume).toBe(0.5)
+    expect(localStorage.getItem(SHARE_VOLUME_KEY)).toBe('0.5')
+
+    // Click mute icon
+    const muteIcon = getByTitle('Mute')
+    act(() => {
+      fireEvent.click(muteIcon)
+    })
+
+    expect(mockAudio.volume).toBe(0)
+    expect(localStorage.getItem(SHARE_VOLUME_KEY)).toBe('0')
+
+    // Click unmute icon to restore
+    const unmuteIcon = getByTitle('Unmute')
+    act(() => {
+      fireEvent.click(unmuteIcon)
+    })
+
+    expect(mockAudio.volume).toBe(0.5)
+    expect(localStorage.getItem(SHARE_VOLUME_KEY)).toBe('0.5')
+  })
+
+  it('restores previous volume from localStorage on initial render and applies to audio instance', () => {
+    localStorage.setItem(SHARE_VOLUME_KEY, '0.35')
+
+    const { getByRole } = render(<SharePlayer />)
+    const mockAudio = { volume: 1 }
+
+    act(() => {
+      playerProps.getAudioInstance(mockAudio)
+    })
+
+    const slider = getByRole('slider', { name: /volume/i })
+    expect(slider.value).toBe('0.35')
+    expect(mockAudio.volume).toBe(0.35)
+    expect(playerProps.defaultVolume).toBe(0.35)
+  })
+
+  it('falls back to default volume (1.0) when localStorage has invalid data', () => {
+    localStorage.setItem(SHARE_VOLUME_KEY, 'invalid-num')
+
+    const { getByRole } = render(<SharePlayer />)
+    const mockAudio = { volume: 0.5 }
+
+    act(() => {
+      playerProps.getAudioInstance(mockAudio)
+    })
+
+    const slider = getByRole('slider', { name: /volume/i })
+    expect(slider.value).toBe('1')
+    expect(mockAudio.volume).toBe(1)
   })
 })
